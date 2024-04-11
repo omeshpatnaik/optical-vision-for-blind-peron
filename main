@@ -1,0 +1,77 @@
+#final_cam
+import cv2
+import torch
+import pyttsx3
+import ssl
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+cam="http://172.16.21.209:8080/video"
+# Load YOLOv5 model
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model.to(device)
+
+# Initialize text-to-speech engine
+engine = pyttsx3.init()
+
+# Define a function to calculate distance
+def calculate_distance(pixel_height, focal_length, object_height):
+    return focal_length * object_height / pixel_height
+
+# Define camera parameters
+focal_length = 1000.0  # Focal length of the camera (in pixels)
+known_object_height = 1.7  # Known height of the object in the real world (in meters)
+
+# Define a function to speak the detection result
+def speak_detection(object_type, distance):
+    text = f"{object_type} detected at a distance of {distance:.2f} meters"
+    engine.say(text)
+    engine.runAndWait()
+
+# Start video capture
+cap = cv2.VideoCapture(cam)
+
+# Set buffer size to 3 frames
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+
+while cap.isOpened():
+    # Read a frame from the video capture
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Perform object detection
+    results = model(frame)
+
+    # Process detection results
+    for obj in results.xyxy[0]:
+        # Extract bounding box coordinates and object class confidence
+        x1, y1, x2, y2, conf, cls = obj.tolist()
+
+        # Calculate object height in pixels
+        pixel_height = y2 - y1
+
+        # Calculate distance to the object
+        distance = calculate_distance(pixel_height, focal_length, known_object_height)
+
+        # Speak the detection result
+        speak_detection(results.names[int(cls)], distance)
+
+        # Display distance and object class on the frame
+        label = f'{results.names[int(cls)]}: {distance:.2f} meters'
+        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(frame, label, (int(x1), int(y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Display the frame
+    cv2.imshow('Real-time Object Detection', frame)
+
+    # Break the loop if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the video capture object and close all windows
+cap.release()
+cv2.destroyAllWindows()
